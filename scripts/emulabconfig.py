@@ -8,7 +8,7 @@ ssh access. Check https://www.cloudlab.us/ssh-keys.php if you didn't export keys
 Sample localconfig.py 
 from emulabconfig import *
 hooks = EmulabClusterHooks(makeflags='-j12 DEBUG=no');
-# EmulabClusterHooks(makeflags='-j12 DPDK=yes DPDK_DIR=/local/RAMCloud/deps/dpdk-16.07')
+# EmulabClusterHooks(makeflags='-j12 DEBUG=no DPDK=yes DPDK_DIR=/local/RAMCloud/deps/dpdk-16.07')
 # builds for DPDK
 hosts = getHosts()
 

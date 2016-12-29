@@ -258,7 +258,8 @@ def run_test(
         'replicas':    options.replicas,
         'disjunct':    options.disjunct,
         'verbose':     options.verbose,
-        'profile':     options.profile
+        'profile':     options.profile,
+        'profile_interval': options.profile_interval
     }
     client_args = {}
     # Provide a default value for num_servers here.  This is better
@@ -717,10 +718,6 @@ def calculatePerClientTarget(workload, clients, percentage):
     return int(peak * (percentage / 100.0) / int(clients))
 
 def migrateLoaded(name, options, cluster_args, client_args):
-    if "profile" in cluster_args.keys():
-        print("cluster args:",cluster_args)
-        print("client args:", client_args)
-        return
     if not options.extract:
         clients = options.num_clients
         servers = options.num_servers # len(getHosts()) - clients - 1
@@ -946,7 +943,10 @@ if __name__ == '__main__':
     parser.add_option('--profile', type=str, dest='profile',
             default=None, metavar='membw/ddiobw/pciebw',
             help='Profile Memory B/W, DDIO induced LLC misses'
-                 ' or PCIE traffic using ucevent tool')       
+                 ' or PCIE traffic using ucevent tool')
+    parser.add_option('--profile_interval', type=str, dest='profile_interval',
+            default="100", metavar="MSECS",
+            help='perf sample interval for ucevent tool in milliseconds')    
     (options, args) = parser.parse_args()
 
     if options.parse:

@@ -302,7 +302,8 @@ class Cluster(object):
                      disk=None,
                      port=server_port,
                      kill_on_exit=True,
-                     profile=None
+                     profile=None,
+                     profile_interval="100"
                      ):
         """Start a server on a node.
         @param host: (hostname, ip, id) tuple describing the node on which
@@ -364,9 +365,13 @@ class Cluster(object):
         stdout = open(log_prefix + '.out', 'w')
         stderr = open(log_prefix + '.err', 'w')
         if profile:
-            profile_command = ('%s -I 100 --socket 0 '
+            profile_command = ('%s -I %s --socket 0 '
+                               ' -o %s-%s.csv -x,'
                                ' --scale MB %s sleep 9999' %
                                (profile_bin,
+                                profile_interval,
+                                log_prefix,
+                                profile,
                                 ucevent_flags[profile]))
             print("profile cmd:",profile_command)
             profileout = open(log_prefix + '-profile.out', 'w')
@@ -603,11 +608,12 @@ def run(
         old_master_args='',        # Additional arguments to run on the
                                    # old master (e.g. total RAM).
         enable_logcabin=False,     # Do not enable logcabin.
-        valgrind=False,		   # Do not run under valgrind
-        valgrind_args='',	   # Additional arguments for valgrind
+        valgrind=False,		       # Do not run under valgrind
+        valgrind_args='',	       # Additional arguments for valgrind
         disjunct=False,            # Disjunct entities on a server
-        coordinator_host=None,
-        profile=None
+        coordinator_host=None,     # Co-ordinator machine
+        profile=None,              # Which ucevent to profile
+        profile_interval="1000"    # Profile interval in milliseconds
         ):
     """
     Start a coordinator and servers, as indicated by the arguments.  If a
@@ -672,7 +678,8 @@ def run(
             oldMaster = cluster.start_server(old_master_host,
                                              old_master_args,
                                              backup=False,
-                                             profile=profile)
+                                             profile=profile,
+                                             profile_interval=profile_interval)
             oldMaster.ignoreFailures = True
             masters_started += 1
             cluster.ensure_servers(timeout=60)
@@ -687,7 +694,8 @@ def run(
                 backups_started += 1
                 disk_args = disk1 if backup_disks_per_server == 1 else disk2
             cluster.start_server(host, args, backup=backup,
-                                 disk=disk_args, profile=profile)
+                                 disk=disk_args, profile=profile,
+                                 profile_interval=profile_interval)
             masters_started += 1
 
         if disjunct:
