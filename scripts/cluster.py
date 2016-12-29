@@ -38,6 +38,7 @@ from optparse import OptionParser
 coordinator_binary = '%s/coordinator' % config.hooks.get_remote_obj_path()
 server_binary = '%s/server' % config.hooks.get_remote_obj_path()
 ensure_servers_bin = '%s/apps/ensureServers' % config.hooks.get_remote_obj_path()
+profile_bin = '%s/../pmu-tools/ucevent/ucevent.py' % config.hooks.get_remote_obj_path()
 
 # valgrind
 valgrind_command = ''
@@ -68,6 +69,11 @@ coord_locator_templates = {
     # or dpdk.
     'basic+infud': 'basic+udp:host=%(host)s,port=%(port)d',
     'basic+dpdk': 'basic+udp:host=%(host)s,port=%(port)d',
+}
+ucevent_flags = {
+    'membw': 'iMC.MEM_BW_TOTAL',
+    'ddiobw': 'CBO.LLC_DDIO_MEM_TOTAL_BYTES',
+    'pciebw': 'CBO.LLC_PCIE_MEM_TOTAL_BYTES'
 }
 
 def server_locator(transport, host, port=server_port):
@@ -295,7 +301,8 @@ class Cluster(object):
                      backup=True,
                      disk=None,
                      port=server_port,
-                     kill_on_exit=True
+                     kill_on_exit=True,
+                     profile=None
                      ):
         """Start a server on a node.
         @param host: (hostname, ip, id) tuple describing the node on which
@@ -315,6 +322,8 @@ class Cluster(object):
                      If False, this server process is not reaped at the end
                      of the clusterperf test.
                      (default: True)
+        @param profile: If not None, issue a ucevent command to profile 
+                        uncore events using appropriate flags.
         @return: Sandbox.Process representing the server process.
         """
         log_prefix = '%s/server%d.%s' % (
@@ -354,6 +363,21 @@ class Cluster(object):
         # Adding redirection for stdout and stderr.
         stdout = open(log_prefix + '.out', 'w')
         stderr = open(log_prefix + '.err', 'w')
+        if profile:
+            profile_command = ('%s -I 100 --socket 0 '
+                               ' --scale MB %s sleep 9999' %
+                               (profile_bin,
+                                ucevent_flags[profile]))
+            print("profile cmd:",profile_command)
+            profileout = open(log_prefix + '-profile.out', 'w')
+            profilerr = open(log_prefix + '-profile.err', 'w')
+            profile = self.sandbox.rsh(host[0], 
+                                       profile_command,
+                                       bg=True,
+                                       kill_on_exit=True,
+                                       stdout=profileout,
+                                       stderr=profilerr)
+
         if not kill_on_exit:
             server = self.sandbox.rsh(host[0], command, is_server=True,
                                       locator=server_locator(self.transport,
@@ -361,7 +385,9 @@ class Cluster(object):
                                       kill_on_exit=False, bg=True,
                                       stdout=stdout,
                                       stderr=stderr)
+               
         else:
+
             server = self.sandbox.rsh(host[0], command, is_server=True,
                                       locator=server_locator(self.transport,
                                                              host, port),
@@ -580,7 +606,8 @@ def run(
         valgrind=False,		   # Do not run under valgrind
         valgrind_args='',	   # Additional arguments for valgrind
         disjunct=False,            # Disjunct entities on a server
-        coordinator_host=None
+        coordinator_host=None,
+        profile=None
         ):
     """
     Start a coordinator and servers, as indicated by the arguments.  If a
@@ -589,7 +616,8 @@ def run(
     @return: string indicating the path to the log files for this run.
     """
 #    client_hosts = [('rc52', '192.168.1.152', 52)]
-
+    if profile:
+        print("profile:",profile)
     if client:
         if num_clients == 0:
             num_clients = 1
@@ -643,7 +671,8 @@ def run(
         if old_master_host:
             oldMaster = cluster.start_server(old_master_host,
                                              old_master_args,
-                                             backup=False)
+                                             backup=False,
+                                             profile=profile)
             oldMaster.ignoreFailures = True
             masters_started += 1
             cluster.ensure_servers(timeout=60)
@@ -657,7 +686,8 @@ def run(
                 args += ' %s' % backup_args
                 backups_started += 1
                 disk_args = disk1 if backup_disks_per_server == 1 else disk2
-            cluster.start_server(host, args, backup=backup, disk=disk_args)
+            cluster.start_server(host, args, backup=backup,
+                                 disk=disk_args, profile=profile)
             masters_started += 1
 
         if disjunct:
@@ -766,9 +796,14 @@ if __name__ == '__main__':
             help='Arguments to pass to valgrind')
     parser.add_option('--disjunct', action='store_true', default=False,
             help='Disjunct entities (disable collocation) on each server')
+    parser.add_option('--profile', type=str, default=None,
+            dest='profile', metavar='membw/ddiobw/pciebw',
+            help='Profile Memory B/W, DDIO induced LLC misses'
+                 ' or PCIe traffic using ucevent tool')
 
     (options, args) = parser.parse_args()
-
+    print("options",options)
+    print("args",args)
     status = 0
     try:
         run(**vars(options))
