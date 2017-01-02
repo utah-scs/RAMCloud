@@ -21,7 +21,7 @@ import re
 import socket
 import xml.etree.ElementTree as ET
 
-__all__ = ['getHosts', 'local_scripts_path', 'top_path', 'obj_path',
+__all__ = ['getHosts', 'checkHost', 'local_scripts_path', 'top_path', 'obj_path',
            'default_disk1', 'default_disk2', 'EmulabClusterHooks', 'log'] 
 
 hostname = socket.gethostname()
@@ -62,7 +62,12 @@ def getHosts(serversOnly=False, othersOnly=False):
         serverList = [client for client in serverList if client[0].startswith("client")]
     return serverList
 
-    
+def checkHost(host):
+    serverList = getHosts()
+    for server in serverList:
+        if host == server[0]:
+            return True
+    raise Exception("Attempted host %s not found in localconfig" % host)
 
 def ssh(server, cmd, checked=True):
     """ Runs command on a remote machine over ssh.""" 

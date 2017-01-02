@@ -107,6 +107,7 @@ default_disk2 = '-f /dev/sda2,/dev/sdb2'
 hosts = None
 server_hosts = None
 other_hosts = None
+
 class NoOpClusterHooks:
     def __init__(self):
         pass

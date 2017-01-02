@@ -259,7 +259,8 @@ def run_test(
         'disjunct':    options.disjunct,
         'verbose':     options.verbose,
         'profile':     options.profile,
-        'profile_interval': options.profile_interval
+        'profile_interval': options.profile_interval,
+        'numactl':     options.numactl
     }
     client_args = {}
     # Provide a default value for num_servers here.  This is better
@@ -947,6 +948,8 @@ if __name__ == '__main__':
     parser.add_option('--profile_interval', type=str, dest='profile_interval',
             default="100", metavar="MSECS",
             help='perf sample interval for ucevent tool in milliseconds')    
+    parser.add_option('--numactl', action='store_true', default=False,
+            help='Enable numactl and bind to first socket (cpu0)')
     (options, args) = parser.parse_args()
 
     if options.parse:

@@ -43,6 +43,8 @@ profile_bin = '%s/../pmu-tools/ucevent/ucevent.py' % config.hooks.get_remote_obj
 # valgrind
 valgrind_command = ''
 
+numactl_command = ''
+
 # Info used to construct service locators for each of the transports
 # supported by RAMCloud.  In some cases the locator for the coordinator
 # needs to be different from that for the servers.
@@ -253,8 +255,8 @@ class Cluster(object):
                                                  self.coordinator_host)
         if not self.enable_logcabin:
             command = (
-                '%s %s -C %s -l %s --logFile %s/coordinator.%s.log %s' %
-                (valgrind_command,
+                '%s %s %s -C %s -l %s --logFile %s/coordinator.%s.log %s' %
+                (valgrind_command, numactl_command,
                  coordinator_binary, self.coordinator_locator,
                  self.log_level, self.log_subdir,
                  self.coordinator_host[0], args))
@@ -265,9 +267,9 @@ class Cluster(object):
             # currently hardcoding logcabin server because ankita's logcabin
             # scripts are not on git.
             command = (
-                '%s %s -C %s -z logcabin21:61023 -l %s '
+                '%s %s %s -C %s -z logcabin21:61023 -l %s '
                 '--logFile %s/coordinator.%s.log %s' %
-                (valgrind_command,
+                (valgrind_command, numactl_command,
                  coordinator_binary, self.coordinator_locator,
                  self.log_level, self.log_subdir,
                  self.coordinator_host[0], args))
@@ -332,9 +334,9 @@ class Cluster(object):
         log_prefix = '%s/server%d.%s' % (
                       self.log_subdir, self.next_server_id, host[0])
 
-        command = ('%s %s -C %s -L %s -r %d -l %s --clusterName __unnamed__ '
+        command = ('%s %s %s -C %s -L %s -r %d -l %s --clusterName __unnamed__ '
                    '--logFile %s.log --preferredIndex %d %s' %
-                   (valgrind_command,
+                   (valgrind_command, numactl_command,
                     server_binary, self.coordinator_locator,
                     server_locator(self.transport, host, port),
                     self.replicas,
@@ -488,9 +490,9 @@ class Cluster(object):
         client_args = ' '.join(args[1:])
         clients = []
         for i, client_host in enumerate(hosts):
-            command = ('%s %s -C %s --numClients %d --clientIndex %d '
+            command = ('%s %s %s -C %s --numClients %d --clientIndex %d '
                        '--logFile %s/client%d.%s.log %s' %
-                       (valgrind_command,
+                       (valgrind_command, numactl_command,
                         client_bin, self.coordinator_locator, num_clients,
                         i, self.log_subdir, self.next_client_id,
                         client_host[0], client_args))
@@ -611,6 +613,7 @@ def run(
                                    # old master (e.g. total RAM).
         enable_logcabin=False,     # Do not enable logcabin.
         valgrind=False,		       # Do not run under valgrind
+        numactl=False,		       # Do not run with numactl
         valgrind_args='',	       # Additional arguments for valgrind
         disjunct=False,            # Disjunct entities on a server
         coordinator_host=None,     # Co-ordinator machine
@@ -624,6 +627,11 @@ def run(
     @return: string indicating the path to the log files for this run.
     """
 #    client_hosts = [('rc52', '192.168.1.152', 52)]
+    global numactl_command
+    if numactl:
+        numactl_command = 'numactl --cpunodebind=0'
+    else:
+        numactl_command = ''
     if profile:
         print("profile:",profile)
     if client:
@@ -840,6 +848,8 @@ if __name__ == '__main__':
             dest='profile', metavar='membw/ddiobw/pciebw',
             help='Profile Memory B/W, DDIO induced LLC misses'
                  ' or PCIe traffic using ucevent tool')
+    parser.add_option('--numactl', action='store_true', default=True,
+            help='Enable numactl and bind to first socket (cpu0)')
 
     (options, args) = parser.parse_args()
     print("options",options)
