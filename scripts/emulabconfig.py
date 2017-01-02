@@ -115,11 +115,11 @@ else:
 
 # Command-line argument specifying where the server should store the segment
 # replicas when one device is used.
-default_disk1 = '-f /dev/sda2'
+default_disk1 = '-f /dev/sda4'
 
 # Command-line argument specifying where the server should store the segment
 # replicas when two devices are used.
-default_disk2 = '-f /dev/sda2,/dev/sda3'
+default_disk2 = '-f /dev/sda4,/dev/sdb'
 
 class EmulabClusterHooks:
     def __init__(self, makeflags=''):
