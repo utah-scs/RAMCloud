@@ -33,7 +33,9 @@ def log(msg):
 # If run locally, connects to EMULAB_HOST and gets the manifest from there to
 # populate host list, since this is invoked to compile RAMCloud (rawmetrics.py)
 # the default is to see if you can get the manifest locally
-def getHosts():
+def getHosts(serversOnly=False, othersOnly=False):
+    if serversOnly and othersOnly:
+        sys.exit("Can't user serversOnly and othersOnly together")
     nodeId = 0
     serverList = []
     try:
@@ -54,7 +56,13 @@ def getHosts():
                 if host.tag.endswith('host'):
                     serverList.append((host.attrib['name'], host.attrib['ipv4'], nodeId))
                     nodeId += 1
+    if serversOnly:
+        serverList = [server for server in serverList if server[0].startswith("server")]
+    if othersOnly:
+        serverList = [client for client in serverList if client[0].startswith("client")]
     return serverList
+
+    
 
 def ssh(server, cmd, checked=True):
     """ Runs command on a remote machine over ssh.""" 
@@ -112,7 +120,9 @@ class EmulabClusterHooks:
     def __init__(self, makeflags=''):
         self.remotewd = None
         self.hosts = getHosts()
-	self.makeflags = makeflags
+        self.server_hosts = getHosts(serversOnly=True)
+        self.other_hosts = getHosts(othersOnly=True)
+        self.makeflags = makeflags
         self.parallel = self.cmd_exists("pdsh")
         if not self.parallel:
             log("NOTICE: Remote commands could be faster if you install and configure pdsh")

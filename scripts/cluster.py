@@ -201,8 +201,10 @@ class Cluster(object):
         self.next_client_id = 1
         self.masters_started = 0
         self.backups_started = 0
-
-        self.coordinator_host= getHosts()[0]
+        if config.hooks.other_hosts is not None:
+            self.coordinator_host= config.hooks.other_hosts[0]
+        else:
+            self.coordinator_host= getHosts()[0]
         self.coordinator_locator = coord_locator(self.transport,
                                                  self.coordinator_host)
         self.log_subdir = log.createDir(log_dir, log_exists)
@@ -629,8 +631,14 @@ def run(
             num_clients = 1
 
     if verbose:
-        print('num_servers=(%d), available hosts=(%d) defined in config.py'
-              % (num_servers, len(getHosts())))
+        if config.hooks.other_hosts is not None:
+            print('num_servers=(%d), available server hosts=(%d) defined in config.py'
+                  % (num_servers, len(config.hooks.server_hosts)))
+            print('num_clients=(%d), available other hosts=(%d) defined in config.py'
+                  % (num_clients, len(config.hooks.other_hosts)))
+        else:
+            print('num_servers=(%d), available hosts=(%d) defined in config.py'
+                  % (num_servers, len(getHosts())))
         print ('disjunct=', disjunct)
 
 # When disjunct=True, disjuncts Coordinator and Clients on Server nodes.
@@ -639,9 +647,13 @@ def run(
             raise Exception('num_servers (%d)+num_clients (%d)+1(coord) exceeds the available hosts (%d)'
                             % (num_servers, num_clients, len(getHosts())))
     else:
-        if num_servers > len(getHosts()):
+        if config.hooks.server_hosts is not None:
+            max_servers = len(config.hooks.server_hosts)
+        else:
+            max_servers = len(getHosts())
+        if num_servers > max_servers:
             raise Exception('num_servers (%d) exceeds the available hosts (%d)'
-                            % (num_servers, len(getHosts())))
+                            % (num_servers, max_servers))
 
     if not share_hosts and not client_hosts:
         if (len(getHosts()) - num_servers) < 1:
@@ -666,12 +678,18 @@ def run(
         cluster.enable_logcabin = enable_logcabin
         cluster.disjunct = disjunct
         cluster.hosts = getHosts()
-
+        cluster.server_hosts = config.hooks.server_hosts
+        cluster.other_hosts = config.hooks.other_hosts
         if not coordinator_host:
-            coordinator_host = cluster.hosts[len(cluster.hosts)-1]
+            if cluster.other_hosts is not None:
+                coordinator_host = cluster.other_hosts[len(cluster.other_hosts)-1]
+            else:
+                coordinator_host = cluster.hosts[len(cluster.hosts)-1]
         coordinator = cluster.start_coordinator(coordinator_host,
                                                 coordinator_args)
         if disjunct:
+            if config.hooks.other_hosts is not None:
+                cluster.other_hosts.pop(0)
             cluster.hosts.pop(0)
 
         if old_master_host:
@@ -683,8 +701,11 @@ def run(
             oldMaster.ignoreFailures = True
             masters_started += 1
             cluster.ensure_servers(timeout=60)
-
-        for host in cluster.hosts[:num_servers]:
+        if config.server_hosts is not None:
+            server_hosts = cluster.server_hosts[:num_servers]
+        else:
+            server_hosts = cluster.hosts[:num_servers]
+        for host in server_hosts:
             backup = False
             args = master_args
             disk_args = None
@@ -699,7 +720,10 @@ def run(
             masters_started += 1
 
         if disjunct:
-            cluster.hosts = cluster.hosts[num_servers:]
+            if config.server_hosts is not None:
+                cluster.server_hosts = cluster.server_hosts[num_servers:]
+            else:
+                cluster.hosts = cluster.hosts[num_servers:]
 
         if masters_started > 0 or backups_started > 0:
             cluster.ensure_servers()
@@ -718,12 +742,20 @@ def run(
             # don't do it unless necessary.
             if not client_hosts:
                 if disjunct:
-                    host_list = cluster.hosts[:]
+                    if cluster.other_hosts is not None:
+                        host_list = cluster.other_hosts[:]
+                    else:
+                        host_list = cluster.hosts[:]
                 else:
-                    host_list = cluster.hosts[num_servers:]
+                    if cluster.other_hosts is not None:
+                        host_list = cluster.other_hosts[:]
+                    else:
+                        host_list = cluster.hosts[num_servers:]
                     if share_hosts:
-                        host_list.extend(cluster.hosts[:num_servers])
-
+                        if cluster.server_hosts is not None:
+                            host_list.extend(cluster.server_hosts[:num_servers])
+                        else:
+                            host_list.extend(cluster.hosts[:num_servers])
                 client_hosts = [host_list[i % len(host_list)]
                                 for i in range(num_clients)]
             assert(len(client_hosts) == num_clients)
