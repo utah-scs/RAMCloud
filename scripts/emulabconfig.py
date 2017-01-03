@@ -129,6 +129,12 @@ class EmulabClusterHooks:
         self.other_hosts = getHosts(othersOnly=True)
         self.makeflags = makeflags
         self.parallel = self.cmd_exists("pdsh")
+        print("numactl:",self.cmd_exists("numactl",server=self.hosts[0][0]))
+        print("junkcmd:",self.cmd_exists("junkcmd",server=self.hosts[0][0]))
+        for host in self.hosts:
+            if not self.cmd_exists("numactl",server=host[0]):
+                log("WARNING: numactl not installed. install numactl"
+                    " and provide --numactl flag in clusterperf for multi socket machines")
         if not self.parallel:
             log("NOTICE: Remote commands could be faster if you install and configure pdsh")
             self.remote_func = self.serial
@@ -138,9 +144,13 @@ class EmulabClusterHooks:
                     f.write(host[0]+'\n')
             self.remote_func = pdsh
 
-    def cmd_exists(self, cmd):
-        return subprocess.call("type " + cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE) == 0
-    
+    def cmd_exists(self, cmd, server=None):
+        if server is None:
+            return subprocess.call("type " + cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE) == 0
+        else:
+            return ssh(server, "type %s > /dev/null 2>&1" % cmd, checked=False) == 0
+                    
+
     def serial(self, cmd, checked=True):
         for host in self.hosts:
             log("Running on %s" % host[0])

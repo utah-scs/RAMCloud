@@ -368,15 +368,28 @@ class Cluster(object):
         # Adding redirection for stdout and stderr.
         stdout = open(log_prefix + '.out', 'w')
         stderr = open(log_prefix + '.err', 'w')
+        global numactl_command
         if profile:
-            profile_command = ('%s -I %s --socket 0 '
-                               ' -o %s-%s.csv -x,'
-                               ' --scale MB %s sleep 9999' %
-                               (profile_bin,
-                                profile_interval,
-                                log_prefix,
-                                profile,
-                                ucevent_flags[profile]))
+            profile_command = None
+            if numactl_command == '':
+                 profile_command = ('%s -I %s'
+                                   ' -o %s-%s.csv -x,'
+                                   ' --scale MB %s sleep 9999' %
+                                   (profile_bin,
+                                   profile_interval,
+                                   log_prefix,
+                                   profile,
+                                   ucevent_flags[profile]))
+           
+            else: 
+                profile_command = ('%s -I %s --socket 0 '
+                                   ' -o %s-%s.csv -x,'
+                                   ' --scale MB %s sleep 9999' %
+                                   (profile_bin,
+                                   profile_interval,
+                                   log_prefix,
+                                   profile,
+                                   ucevent_flags[profile]))
             print("profile cmd:",profile_command)
             profileout = open(log_prefix + '-profile.out', 'w')
             profilerr = open(log_prefix + '-profile.err', 'w')
@@ -648,6 +661,7 @@ def run(
             print('num_servers=(%d), available hosts=(%d) defined in config.py'
                   % (num_servers, len(getHosts())))
         print ('disjunct=', disjunct)
+        print ('numactl=', numactl)
 
 # When disjunct=True, disjuncts Coordinator and Clients on Server nodes.
     if disjunct:
