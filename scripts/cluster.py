@@ -642,7 +642,7 @@ def run(
 #    client_hosts = [('rc52', '192.168.1.152', 52)]
     global numactl_command
     if numactl:
-        numactl_command = 'numactl --cpunodebind=0'
+        numactl_command = 'numactl --cpunodebind=0 --membind=0 '
     else:
         numactl_command = ''
     if profile:

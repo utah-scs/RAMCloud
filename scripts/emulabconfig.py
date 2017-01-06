@@ -129,8 +129,6 @@ class EmulabClusterHooks:
         self.other_hosts = getHosts(othersOnly=True)
         self.makeflags = makeflags
         self.parallel = self.cmd_exists("pdsh")
-        print("numactl:",self.cmd_exists("numactl",server=self.hosts[0][0]))
-        print("junkcmd:",self.cmd_exists("junkcmd",server=self.hosts[0][0]))
         for host in self.hosts:
             if not self.cmd_exists("numactl",server=host[0]):
                 log("WARNING: numactl not installed. install numactl"
