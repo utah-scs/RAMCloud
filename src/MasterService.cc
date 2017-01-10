@@ -1093,7 +1093,7 @@ MasterService::migrateTablet(const WireFormat::MigrateTablet::Request* reqHdr,
     bool found = tabletManager.getTablet(tableId, firstKeyHash, lastKeyHash, 0);
     if (!found) {
         LOG(WARNING, "Migration request for tablet this master does not own: "
-            "tablet [0x%lx,0x%lx] in tableId %lu", firstKeyHash, lastKeyHash,
+            "tablet [0x%lx,0x%lx] in tableId %lu. Did you split the tablets correctly ?", firstKeyHash, lastKeyHash,
             tableId);
         respHdr->common.status = STATUS_UNKNOWN_TABLET;
         return;
@@ -2392,7 +2392,7 @@ MasterService::splitMasterTablet(
     bool split = tabletManager.splitTablet(reqHdr->tableId,
             reqHdr->splitKeyHash);
     if (split) {
-        LOG(NOTICE, "In table '%lu' I split the tablet at key %lu ",
+        LOG(NOTICE, "In table '%lu' I split the tablet at key 0x%lx ",
                 reqHdr->tableId, reqHdr->splitKeyHash);
     } else {
         LOG(WARNING, "Could not split table %lu at key hash %lu:"
