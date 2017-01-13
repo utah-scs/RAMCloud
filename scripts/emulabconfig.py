@@ -7,11 +7,10 @@ ssh access. Check https://www.cloudlab.us/ssh-keys.php if you didn't export keys
 
 Sample localconfig.py 
 from emulabconfig import *
-hooks = EmulabClusterHooks(makeflags='-j12 DEBUG=no');
-# EmulabClusterHooks(makeflags='-j12 DEBUG=no DPDK=yes DPDK_DIR=/local/RAMCloud/deps/dpdk-16.07')
-# builds for DPDK
+hooks = EmulabClusterHooks(dpdk=False, alwaysclean=False, makeflags='-j12 DEBUG=no');
 hosts = getHosts()
-
+server_hosts = getHosts(serversOnly=True)
+other_hosts = getHosts(othersOnly=True)
 """
 
 import subprocess
@@ -122,12 +121,18 @@ default_disk1 = '-f /dev/sda4'
 default_disk2 = '-f /dev/sda4,/dev/sdb'
 
 class EmulabClusterHooks:
-    def __init__(self, makeflags=''):
+    def __init__(self, dpdk=False, alwaysclean=False, makeflags=''):
+        log("NOTICE: running with dpdk=%s, alwaysclean=%s, makeflags=%s" % (dpdk, alwaysclean, makeflags))
         self.remotewd = None
         self.hosts = getHosts()
+        self.clean = alwaysclean
         self.server_hosts = getHosts(serversOnly=True)
         self.other_hosts = getHosts(othersOnly=True)
-        self.makeflags = makeflags
+	if dpdk:
+            self.makeflags = 'DPDK=yes DPDK_DIR=/local/RAMCloud/deps/dpdk-16.07 ' + makeflags
+            self.check_hugepages();
+        else:
+            self.makeflags = makeflags
         self.parallel = self.cmd_exists("pdsh")
         for host in self.hosts:
             if not self.cmd_exists("numactl",server=host[0]):
@@ -148,6 +153,22 @@ class EmulabClusterHooks:
         else:
             return ssh(server, "type %s > /dev/null 2>&1" % cmd, checked=False) == 0
                     
+    def check_hugepages(self):
+        for host in self.hosts:
+            try:
+                num_hugepages = subprocess.check_output("ssh %s cat /sys/kernel/mm/hugepages/hugepages-1048576kB/nr_hugepages " % host[0],
+                                                        shell=True, stderr=subprocess.STDOUT)
+                num_hugepages = int(num_hugepages)
+            except subprocess.CalledProcessError:
+                num_hugepages = 0
+            if num_hugepages < 2:
+                sys.exit("At least 2 1GB hugepages required for DPDK. Didn't find enough on %s" % host[0])
+            try:
+                mounted = subprocess.check_output("ssh %s mount | grep pagesize=1G" % host[0], shell=True, stderr=subprocess.STDOUT)
+            except subprocess.CalledProcessError:
+                mounted = None
+            if mounted is None or "hugetlbfs" not in mounted:
+                sys.exit("DPDK requires 1GB hugepages mounted. Couldn't find any on %s" % host[0])
 
     def serial(self, cmd, checked=True):
         for host in self.hosts:
@@ -207,7 +228,7 @@ class EmulabClusterHooks:
         log('== Connecting to Emulab via %s ==' % self.hosts[0][0])
         #self.kill_procs()
         self.send_code()
-        self.compile_code(clean=False)
+        self.compile_code(clean=self.clean)
         self.create_log_dir()
         self.fix_disk_permissions()
         log('== Emulab Cluster Configured ==')
