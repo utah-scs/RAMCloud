@@ -34,13 +34,16 @@ import sys
 import time
 from optparse import OptionParser
 
+cmd_prefix = ''
 # Locations of various RAMCloud executables.
 coordinator_binary = '%s/coordinator' % config.hooks.get_remote_obj_path()
 server_binary = '%s/server' % config.hooks.get_remote_obj_path()
 ensure_servers_bin = '%s/apps/ensureServers' % config.hooks.get_remote_obj_path()
+profile_bin = '%s/../pmu-tools/ucevent/ucevent.py' % config.hooks.get_remote_obj_path()
 
 # valgrind
 valgrind_command = ''
+numactl_command = ''
 
 # Info used to construct service locators for each of the transports
 # supported by RAMCloud.  In some cases the locator for the coordinator
@@ -68,6 +71,11 @@ coord_locator_templates = {
     # or dpdk.
     'basic+infud': 'basic+udp:host=%(host)s,port=%(port)d',
     'basic+dpdk': 'basic+udp:host=%(host)s,port=%(port)d',
+}
+ucevent_flags = {
+    'membw': 'iMC.MEM_BW_TOTAL',
+    'ddiobw': 'CBO.LLC_DDIO_MEM_TOTAL_BYTES',
+    'pciebw': 'CBO.LLC_PCIE_MEM_TOTAL_BYTES'
 }
 
 def server_locator(transport, host, port=server_port):
@@ -195,8 +203,10 @@ class Cluster(object):
         self.next_client_id = 1
         self.masters_started = 0
         self.backups_started = 0
-
-        self.coordinator_host= getHosts()[0]
+        if config.hooks.other_hosts:
+            self.coordinator_host= config.hooks.other_hosts[0]
+        else:
+            self.coordinator_host= getHosts()[0]
         self.coordinator_locator = coord_locator(self.transport,
                                                  self.coordinator_host)
         self.log_subdir = log.createDir(log_dir, log_exists)
@@ -245,8 +255,8 @@ class Cluster(object):
                                                  self.coordinator_host)
         if not self.enable_logcabin:
             command = (
-                '%s %s -C %s -l %s --logFile %s/coordinator.%s.log %s' %
-                (valgrind_command,
+                '%s %s %s %s -C %s -l %s --logFile %s/coordinator.%s.log %s' %
+                (cmd_prefix, valgrind_command, numactl_command,
                  coordinator_binary, self.coordinator_locator,
                  self.log_level, self.log_subdir,
                  self.coordinator_host[0], args))
@@ -257,9 +267,9 @@ class Cluster(object):
             # currently hardcoding logcabin server because ankita's logcabin
             # scripts are not on git.
             command = (
-                '%s %s -C %s -z logcabin21:61023 -l %s '
+                '%s %s %s -C %s -z logcabin21:61023 -l %s '
                 '--logFile %s/coordinator.%s.log %s' %
-                (valgrind_command,
+                (cmd_prefix, valgrind_command, numactl_command,
                  coordinator_binary, self.coordinator_locator,
                  self.log_level, self.log_subdir,
                  self.coordinator_host[0], args))
@@ -270,9 +280,9 @@ class Cluster(object):
             # just wait for coordinator to start
             time.sleep(1)
             # invoke the script that restarts the coordinator if it dies
-            restart_command = ('%s/restart_coordinator %s/coordinator.%s.log'
+            restart_command = ('%s %s/restart_coordinator %s/coordinator.%s.log'
                                ' %s %s logcabin21:61023' %
-                                (local_scripts_path, self.log_subdir,
+                                (cmd_prefix, local_scripts_path, self.log_subdir,
                                  self.coordinator_host[0],
                                  obj_path, self.coordinator_locator))
 
@@ -295,7 +305,9 @@ class Cluster(object):
                      backup=True,
                      disk=None,
                      port=server_port,
-                     kill_on_exit=True
+                     kill_on_exit=True,
+                     profile=None,
+                     profile_interval="100"
                      ):
         """Start a server on a node.
         @param host: (hostname, ip, id) tuple describing the node on which
@@ -315,14 +327,16 @@ class Cluster(object):
                      If False, this server process is not reaped at the end
                      of the clusterperf test.
                      (default: True)
+        @param profile: If not None, issue a ucevent command to profile 
+                        uncore events using appropriate flags.
         @return: Sandbox.Process representing the server process.
         """
         log_prefix = '%s/server%d.%s' % (
                       self.log_subdir, self.next_server_id, host[0])
 
-        command = ('%s %s -C %s -L %s -r %d -l %s --clusterName __unnamed__ '
+        command = ('%s %s %s %s -C %s -L %s -r %d -l %s --clusterName __unnamed__ '
                    '--logFile %s.log --preferredIndex %d %s' %
-                   (valgrind_command,
+                   (cmd_prefix, valgrind_command, numactl_command,
                     server_binary, self.coordinator_locator,
                     server_locator(self.transport, host, port),
                     self.replicas,
@@ -354,6 +368,38 @@ class Cluster(object):
         # Adding redirection for stdout and stderr.
         stdout = open(log_prefix + '.out', 'w')
         stderr = open(log_prefix + '.err', 'w')
+        global numactl_command
+        if profile:
+            profile_command = None
+            if numactl_command == '':
+                 profile_command = ('%s -I %s'
+                                   ' -o %s-%s.csv -x,'
+                                   ' --scale MB %s sleep 9999' %
+                                   (profile_bin,
+                                   profile_interval,
+                                   log_prefix,
+                                   profile,
+                                   ucevent_flags[profile]))
+           
+            else: 
+                profile_command = ('%s -I %s --socket 0 '
+                                   ' -o %s-%s.csv -x,'
+                                   ' --scale MB %s sleep 9999' %
+                                   (profile_bin,
+                                   profile_interval,
+                                   log_prefix,
+                                   profile,
+                                   ucevent_flags[profile]))
+            print("profile cmd:",profile_command)
+            profileout = open(log_prefix + '-profile.out', 'w')
+            profilerr = open(log_prefix + '-profile.err', 'w')
+            profile = self.sandbox.rsh(host[0], 
+                                       profile_command,
+                                       bg=True,
+                                       kill_on_exit=True,
+                                       stdout=profileout,
+                                       stderr=profilerr)
+
         if not kill_on_exit:
             server = self.sandbox.rsh(host[0], command, is_server=True,
                                       locator=server_locator(self.transport,
@@ -361,7 +407,9 @@ class Cluster(object):
                                       kill_on_exit=False, bg=True,
                                       stdout=stdout,
                                       stderr=stderr)
+               
         else:
+
             server = self.sandbox.rsh(host[0], command, is_server=True,
                                       locator=server_locator(self.transport,
                                                              host, port),
@@ -426,9 +474,9 @@ class Cluster(object):
             numBackups = self.backups_started
         self.sandbox.checkFailures()
         try:
-            ensureCommand = ('%s -C %s -m %d -b %d -l 1 --wait %d '
+            ensureCommand = ('%s %s -C %s -m %d -b %d -l 1 --wait %d '
                              '--logFile %s/ensureServers.log' %
-                             (ensure_servers_bin, self.coordinator_locator,
+                             (cmd_prefix, ensure_servers_bin, self.coordinator_locator,
                              numMasters, numBackups, timeout,
                              self.log_subdir))
             if self.verbose:
@@ -455,9 +503,9 @@ class Cluster(object):
         client_args = ' '.join(args[1:])
         clients = []
         for i, client_host in enumerate(hosts):
-            command = ('%s %s -C %s --numClients %d --clientIndex %d '
+            command = ('%s %s %s %s -C %s --numClients %d --clientIndex %d '
                        '--logFile %s/client%d.%s.log %s' %
-                       (valgrind_command,
+                       (cmd_prefix, valgrind_command, numactl_command,
                         client_bin, self.coordinator_locator, num_clients,
                         i, self.log_subdir, self.next_client_id,
                         client_host[0], client_args))
@@ -577,10 +625,14 @@ def run(
         old_master_args='',        # Additional arguments to run on the
                                    # old master (e.g. total RAM).
         enable_logcabin=False,     # Do not enable logcabin.
-        valgrind=False,		   # Do not run under valgrind
-        valgrind_args='',	   # Additional arguments for valgrind
+        valgrind=False,		       # Do not run under valgrind
+        numactl=False,		       # Do not run with numactl
+        valgrind_args='',	       # Additional arguments for valgrind
         disjunct=False,            # Disjunct entities on a server
-        coordinator_host=None
+        coordinator_host=None,     # Co-ordinator machine
+        profile=None,              # Which ucevent to profile
+        profile_interval="1000",   # Profile interval in milliseconds
+        prefix_bin=''              # command-line prefix for binaries
         ):
     """
     Start a coordinator and servers, as indicated by the arguments.  If a
@@ -589,26 +641,45 @@ def run(
     @return: string indicating the path to the log files for this run.
     """
 #    client_hosts = [('rc52', '192.168.1.152', 52)]
-
+    global numactl_command
+    if numactl:
+        numactl_command = 'numactl --cpunodebind=0 --membind=0 '
+    else:
+        numactl_command = ''
+    if profile:
+        print("profile:",profile)
+    global cmd_prefix
+    if prefix_bin != '':
+        cmd_prefix = prefix_bin
     if client:
         if num_clients == 0:
             num_clients = 1
 
     if verbose:
-        print('num_servers=(%d), available hosts=(%d) defined in config.py'
-              % (num_servers, len(getHosts())))
+        if not config.hooks.other_hosts:
+            print('num_servers=(%d), available server hosts=(%d) defined in config.py'
+                  % (num_servers, len(config.hooks.server_hosts)))
+            print('num_clients=(%d), available other hosts=(%d) defined in config.py'
+                  % (num_clients, len(config.hooks.other_hosts)))
+        else:
+            print('num_servers=(%d), available hosts=(%d) defined in config.py'
+                  % (num_servers, len(getHosts())))
         print ('disjunct=', disjunct)
-
+        print ('numactl=', numactl)
+	print ('cluster size=', len(getHosts()))
 # When disjunct=True, disjuncts Coordinator and Clients on Server nodes.
     if disjunct:
         if num_servers + num_clients + 1 > len(getHosts()):
             raise Exception('num_servers (%d)+num_clients (%d)+1(coord) exceeds the available hosts (%d)'
                             % (num_servers, num_clients, len(getHosts())))
     else:
-        if num_servers > len(getHosts()):
+        if config.hooks.server_hosts:
+            max_servers = len(config.hooks.server_hosts)
+        else:
+            max_servers = len(getHosts())
+        if num_servers > max_servers:
             raise Exception('num_servers (%d) exceeds the available hosts (%d)'
-                            % (num_servers, len(getHosts())))
-
+                            % (num_servers, max_servers))
     if not share_hosts and not client_hosts:
         if (len(getHosts()) - num_servers) < 1:
             raise Exception('Asked for %d servers without sharing hosts with %d '
@@ -632,23 +703,34 @@ def run(
         cluster.enable_logcabin = enable_logcabin
         cluster.disjunct = disjunct
         cluster.hosts = getHosts()
-
+        cluster.server_hosts = config.hooks.server_hosts
+        cluster.other_hosts = config.hooks.other_hosts
         if not coordinator_host:
-            coordinator_host = cluster.hosts[len(cluster.hosts)-1]
+            if cluster.other_hosts:
+                coordinator_host = cluster.other_hosts[len(cluster.other_hosts)-1]
+            else:
+                coordinator_host = cluster.hosts[len(cluster.hosts)-1]
         coordinator = cluster.start_coordinator(coordinator_host,
                                                 coordinator_args)
         if disjunct:
+            if config.hooks.other_hosts:
+                cluster.other_hosts.pop(0)
             cluster.hosts.pop(0)
 
         if old_master_host:
             oldMaster = cluster.start_server(old_master_host,
                                              old_master_args,
-                                             backup=False)
+                                             backup=False,
+                                             profile=profile,
+                                             profile_interval=profile_interval)
             oldMaster.ignoreFailures = True
             masters_started += 1
             cluster.ensure_servers(timeout=60)
-
-        for host in cluster.hosts[:num_servers]:
+        if config.server_hosts:
+            server_hosts = cluster.server_hosts[:num_servers]
+        else:
+            server_hosts = cluster.hosts[:num_servers]
+        for host in server_hosts:
             backup = False
             args = master_args
             disk_args = None
@@ -657,11 +739,16 @@ def run(
                 args += ' %s' % backup_args
                 backups_started += 1
                 disk_args = disk1 if backup_disks_per_server == 1 else disk2
-            cluster.start_server(host, args, backup=backup, disk=disk_args)
+            cluster.start_server(host, args, backup=backup,
+                                 disk=disk_args, profile=profile,
+                                 profile_interval=profile_interval)
             masters_started += 1
 
         if disjunct:
-            cluster.hosts = cluster.hosts[num_servers:]
+            if config.server_hosts:
+                cluster.server_hosts = cluster.server_hosts[num_servers:]
+            else:
+                cluster.hosts = cluster.hosts[num_servers:]
 
         if masters_started > 0 or backups_started > 0:
             cluster.ensure_servers()
@@ -680,12 +767,20 @@ def run(
             # don't do it unless necessary.
             if not client_hosts:
                 if disjunct:
-                    host_list = cluster.hosts[:]
+                    if cluster.other_hosts:
+                        host_list = cluster.other_hosts[:]
+                    else:
+                        host_list = cluster.hosts[:]
                 else:
-                    host_list = cluster.hosts[num_servers:]
+                    if cluster.other_hosts:
+                        host_list = cluster.other_hosts[:]
+                    else:
+                        host_list = cluster.hosts[num_servers:]
                     if share_hosts:
-                        host_list.extend(cluster.hosts[:num_servers])
-
+                        if cluster.server_hosts:
+                            host_list.extend(cluster.server_hosts[:num_servers])
+                        else:
+                            host_list.extend(cluster.hosts[:num_servers])
                 client_hosts = [host_list[i % len(host_list)]
                                 for i in range(num_clients)]
             assert(len(client_hosts) == num_clients)
@@ -766,9 +861,16 @@ if __name__ == '__main__':
             help='Arguments to pass to valgrind')
     parser.add_option('--disjunct', action='store_true', default=False,
             help='Disjunct entities (disable collocation) on each server')
+    parser.add_option('--profile', type=str, default=None,
+            dest='profile', metavar='membw/ddiobw/pciebw',
+            help='Profile Memory B/W, DDIO induced LLC misses'
+                 ' or PCIe traffic using ucevent tool')
+    parser.add_option('--numactl', action='store_true', default=True,
+            help='Enable numactl and bind to first socket (cpu0)')
 
     (options, args) = parser.parse_args()
-
+    print("options",options)
+    print("args",args)
     status = 0
     try:
         run(**vars(options))

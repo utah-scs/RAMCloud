@@ -4788,8 +4788,10 @@ doWorkload(OpType type)
             if (!migration) {
                 RAMCLOUD_LOG(NOTICE, "Starting migration\n");
                 uint64_t endKeyHash = ~0lu;
-                if (migratePercentage < 100)
+                if (migratePercentage < 100) {
                     endKeyHash = endKeyHash / 100 * migratePercentage;
+		    cluster->splitTablet("data", endKeyHash+1);
+		}
                 migration.construct(cluster,
                                     dataTable,
                                     0,

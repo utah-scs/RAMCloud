@@ -257,7 +257,11 @@ def run_test(
         'transport':   options.transport,
         'replicas':    options.replicas,
         'disjunct':    options.disjunct,
-        'verbose':     options.verbose
+        'verbose':     options.verbose,
+        'profile':     options.profile,
+        'profile_interval': options.profile_interval,
+        'numactl':     options.numactl,
+        'prefix_bin':  options.prefix_bin
     }
     client_args = {}
     # Provide a default value for num_servers here.  This is better
@@ -938,6 +942,19 @@ if __name__ == '__main__':
             action='store_true', default=False, dest='fullSamples',
             help='Run with alternate sample format that includes sample '
                  'timestamps along with their durations.')
+    parser.add_option('--profile', type=str, dest='profile',
+            default=None, metavar='membw/ddiobw/pciebw',
+            help='Profile Memory B/W, DDIO induced LLC misses'
+                 ' or PCIE traffic using ucevent tool')
+    parser.add_option('--profile_interval', type=str, dest='profile_interval',
+            default="100", metavar="MSECS",
+            help='perf sample interval for ucevent tool in milliseconds')    
+    parser.add_option('--numactl', action='store_true', default=False,
+            help='Enable numactl and bind to first socket (cpu0)')
+    parser.add_option('--prefix_bin', type=str, dest='prefix_bin',
+            default='', metavar='PREFIX',
+            help='command line prefix for all binaries')
+
     (options, args) = parser.parse_args()
 
     if options.parse:
