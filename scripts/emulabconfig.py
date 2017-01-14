@@ -138,7 +138,13 @@ class EmulabClusterHooks:
             self.makeflags = makeflags
         self.parallel = self.cmd_exists("pdsh")
         for host in self.hosts:
-            if not self.cmd_exists("numactl",server=host[0]):
+            try:
+                numcpus = subprocess.check_output("ssh %s cat /proc/cpuinfo | grep \"physical id\" | sort -u | wc -l" % host[0],
+                                              shell=True, stderr=subprocess.STDOUT)
+                numcpus = int(numcpus)
+            except subprocess.CalledProcessError:
+                numcpus = 0
+            if numcpus > 1 and self.cmd_exists("numactl",server=host[0]) is False:
                 log("WARNING: numactl not installed on %s. install numactl"
                     " and provide --numactl flag for multisocket machines" % host[0])
         if not self.parallel:
