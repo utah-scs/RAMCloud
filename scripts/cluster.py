@@ -713,7 +713,7 @@ def run(
         coordinator = cluster.start_coordinator(coordinator_host,
                                                 coordinator_args)
         if disjunct:
-            if config.hooks.other_hosts is not None:
+            if config.hooks.other_hosts:
                 cluster.other_hosts.pop(0)
             cluster.hosts.pop(0)
 
@@ -726,7 +726,7 @@ def run(
             oldMaster.ignoreFailures = True
             masters_started += 1
             cluster.ensure_servers(timeout=60)
-        if config.server_hosts is not None:
+        if config.server_hosts:
             server_hosts = cluster.server_hosts[:num_servers]
         else:
             server_hosts = cluster.hosts[:num_servers]
@@ -745,7 +745,7 @@ def run(
             masters_started += 1
 
         if disjunct:
-            if config.server_hosts is not None:
+            if config.server_hosts:
                 cluster.server_hosts = cluster.server_hosts[num_servers:]
             else:
                 cluster.hosts = cluster.hosts[num_servers:]
@@ -767,17 +767,17 @@ def run(
             # don't do it unless necessary.
             if not client_hosts:
                 if disjunct:
-                    if cluster.other_hosts is not None:
+                    if cluster.other_hosts:
                         host_list = cluster.other_hosts[:]
                     else:
                         host_list = cluster.hosts[:]
                 else:
-                    if cluster.other_hosts is not None:
+                    if cluster.other_hosts:
                         host_list = cluster.other_hosts[:]
                     else:
                         host_list = cluster.hosts[num_servers:]
                     if share_hosts:
-                        if cluster.server_hosts is not None:
+                        if cluster.server_hosts:
                             host_list.extend(cluster.server_hosts[:num_servers])
                         else:
                             host_list.extend(cluster.hosts[:num_servers])

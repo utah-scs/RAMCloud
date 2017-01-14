@@ -7,6 +7,7 @@ ssh access. Check https://www.cloudlab.us/ssh-keys.php if you didn't export keys
 
 Sample localconfig.py 
 from emulabconfig import *
+#For DPDK builds, use dpdk=True and provide --prefix_bin=sudo to clusterperf
 hooks = EmulabClusterHooks(dpdk=False, alwaysclean=False, makeflags='-j12 DEBUG=no');
 hosts = getHosts()
 server_hosts = getHosts(serversOnly=True)
@@ -127,9 +128,10 @@ class EmulabClusterHooks:
         self.remotewd = None
         self.hosts = getHosts()
         self.clean = alwaysclean
+        self.dpdk = dpdk
         self.server_hosts = getHosts(serversOnly=True)
         self.other_hosts = getHosts(othersOnly=True)
-	if dpdk:
+        if dpdk:
             self.makeflags = 'DPDK=yes DPDK_DIR=/local/RAMCloud/deps/dpdk-16.07 ' + makeflags
             self.check_hugepages();
         else:
@@ -207,7 +209,19 @@ class EmulabClusterHooks:
 
     def kill_procs(self):
         log("Killing existing processes")
-        self.remote_func('sudo pkill -f RAMCloud')
+        #DPDK refuses to die for some reason
+        if self.dpdk:
+            for i in range(3):
+                log("Killing DPDK RAMCloud processes. Try:%s" % str(i+1))
+                try:
+                    self.remote_func('sudo pkill -f RAMCloud')
+                except subprocess.CalledProcessError:
+                    pass
+        else:
+            try:
+                self.remote_func('pkill -f RAMCloud')
+            except subprocess.CalledProcessError:
+                pass
 
     def create_log_dir(self):
         log("creating log directories")
@@ -227,7 +241,7 @@ class EmulabClusterHooks:
     def cluster_enter(self, cluster):
         self.cluster = cluster
         log('== Connecting to Emulab via %s ==' % self.hosts[0][0])
-        #self.kill_procs()
+        self.kill_procs()
         self.send_code()
         self.compile_code(clean=self.clean)
         self.create_log_dir()
