@@ -203,7 +203,7 @@ class Cluster(object):
         self.next_client_id = 1
         self.masters_started = 0
         self.backups_started = 0
-        if config.hooks.other_hosts is not None:
+        if config.hooks.other_hosts:
             self.coordinator_host= config.hooks.other_hosts[0]
         else:
             self.coordinator_host= getHosts()[0]
@@ -652,7 +652,7 @@ def run(
             num_clients = 1
 
     if verbose:
-        if config.hooks.other_hosts is not None:
+        if not config.hooks.other_hosts:
             print('num_servers=(%d), available server hosts=(%d) defined in config.py'
                   % (num_servers, len(config.hooks.server_hosts)))
             print('num_clients=(%d), available other hosts=(%d) defined in config.py'
@@ -662,21 +662,20 @@ def run(
                   % (num_servers, len(getHosts())))
         print ('disjunct=', disjunct)
         print ('numactl=', numactl)
-
+	print ('cluster size=', len(getHosts()))
 # When disjunct=True, disjuncts Coordinator and Clients on Server nodes.
     if disjunct:
         if num_servers + num_clients + 1 > len(getHosts()):
             raise Exception('num_servers (%d)+num_clients (%d)+1(coord) exceeds the available hosts (%d)'
                             % (num_servers, num_clients, len(getHosts())))
     else:
-        if config.hooks.server_hosts is not None:
+        if config.hooks.server_hosts:
             max_servers = len(config.hooks.server_hosts)
         else:
             max_servers = len(getHosts())
         if num_servers > max_servers:
             raise Exception('num_servers (%d) exceeds the available hosts (%d)'
                             % (num_servers, max_servers))
-
     if not share_hosts and not client_hosts:
         if (len(getHosts()) - num_servers) < 1:
             raise Exception('Asked for %d servers without sharing hosts with %d '
@@ -703,7 +702,7 @@ def run(
         cluster.server_hosts = config.hooks.server_hosts
         cluster.other_hosts = config.hooks.other_hosts
         if not coordinator_host:
-            if cluster.other_hosts is not None:
+            if cluster.other_hosts:
                 coordinator_host = cluster.other_hosts[len(cluster.other_hosts)-1]
             else:
                 coordinator_host = cluster.hosts[len(cluster.hosts)-1]

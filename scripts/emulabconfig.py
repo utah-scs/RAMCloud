@@ -55,6 +55,7 @@ def getHosts(serversOnly=False, othersOnly=False):
                 if host.tag.endswith('host'):
                     serverList.append((host.attrib['name'], host.attrib['ipv4'], nodeId))
                     nodeId += 1
+    #for mixed profiles with server-* and client-* nodes
     if serversOnly:
         serverList = [server for server in serverList if server[0].startswith("server")]
     if othersOnly:
@@ -136,8 +137,8 @@ class EmulabClusterHooks:
         self.parallel = self.cmd_exists("pdsh")
         for host in self.hosts:
             if not self.cmd_exists("numactl",server=host[0]):
-                log("WARNING: numactl not installed. install numactl"
-                    " and provide --numactl flag in clusterperf for multi socket machines")
+                log("WARNING: numactl not installed on %s. install numactl"
+                    " and provide --numactl flag for multisocket machines" % host[0])
         if not self.parallel:
             log("NOTICE: Remote commands could be faster if you install and configure pdsh")
             self.remote_func = self.serial
