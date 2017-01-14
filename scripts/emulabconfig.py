@@ -7,11 +7,11 @@ ssh access. Check https://www.cloudlab.us/ssh-keys.php if you didn't export keys
 
 Sample localconfig.py 
 from emulabconfig import *
-hooks = EmulabClusterHooks(makeflags='-j12 DEBUG=no');
-# EmulabClusterHooks(makeflags='-j12 DPDK=yes DPDK_DIR=/local/RAMCloud/deps/dpdk-16.07')
-# builds for DPDK
+#For DPDK builds, use dpdk=True and provide --prefix_bin=sudo to clusterperf
+hooks = EmulabClusterHooks(dpdk=False, alwaysclean=False, makeflags='-j12 DEBUG=no');
 hosts = getHosts()
-
+server_hosts = getHosts(serversOnly=True)
+other_hosts = getHosts(othersOnly=True)
 """
 
 import subprocess
@@ -21,7 +21,7 @@ import re
 import socket
 import xml.etree.ElementTree as ET
 
-__all__ = ['getHosts', 'local_scripts_path', 'top_path', 'obj_path',
+__all__ = ['getHosts', 'checkHost', 'local_scripts_path', 'top_path', 'obj_path',
            'default_disk1', 'default_disk2', 'EmulabClusterHooks', 'log'] 
 
 hostname = socket.gethostname()
@@ -33,7 +33,9 @@ def log(msg):
 # If run locally, connects to EMULAB_HOST and gets the manifest from there to
 # populate host list, since this is invoked to compile RAMCloud (rawmetrics.py)
 # the default is to see if you can get the manifest locally
-def getHosts():
+def getHosts(serversOnly=False, othersOnly=False):
+    if serversOnly and othersOnly:
+        sys.exit("Can't user serversOnly and othersOnly together")
     nodeId = 0
     serverList = []
     try:
@@ -54,7 +56,19 @@ def getHosts():
                 if host.tag.endswith('host'):
                     serverList.append((host.attrib['name'], host.attrib['ipv4'], nodeId))
                     nodeId += 1
+    #for mixed profiles with server-* and client-* nodes
+    if serversOnly:
+        serverList = [server for server in serverList if server[0].startswith("server")]
+    if othersOnly:
+        serverList = [client for client in serverList if client[0].startswith("client")]
     return serverList
+
+def checkHost(host):
+    serverList = getHosts()
+    for server in serverList:
+        if host == server[0]:
+            return True
+    raise Exception("Attempted host %s not found in localconfig" % host)
 
 def ssh(server, cmd, checked=True):
     """ Runs command on a remote machine over ssh.""" 
@@ -102,18 +116,37 @@ else:
 
 # Command-line argument specifying where the server should store the segment
 # replicas when one device is used.
-default_disk1 = '-f /dev/sda2'
+default_disk1 = '-f /dev/sda4'
 
 # Command-line argument specifying where the server should store the segment
 # replicas when two devices are used.
-default_disk2 = '-f /dev/sda2,/dev/sda3'
+default_disk2 = '-f /dev/sda4,/dev/sdb'
 
 class EmulabClusterHooks:
-    def __init__(self, makeflags=''):
+    def __init__(self, dpdk=False, alwaysclean=False, makeflags=''):
+        log("NOTICE: running with dpdk=%s, alwaysclean=%s, makeflags=%s" % (dpdk, alwaysclean, makeflags))
         self.remotewd = None
         self.hosts = getHosts()
-	self.makeflags = makeflags
+        self.clean = alwaysclean
+        self.dpdk = dpdk
+        self.server_hosts = getHosts(serversOnly=True)
+        self.other_hosts = getHosts(othersOnly=True)
+        if dpdk:
+            self.makeflags = 'DPDK=yes DPDK_DIR=/local/RAMCloud/deps/dpdk-16.07 ' + makeflags
+            self.check_hugepages();
+        else:
+            self.makeflags = makeflags
         self.parallel = self.cmd_exists("pdsh")
+        for host in self.hosts:
+            try:
+                numcpus = subprocess.check_output("ssh %s cat /proc/cpuinfo | grep \"physical id\" | sort -u | wc -l" % host[0],
+                                              shell=True, stderr=subprocess.STDOUT)
+                numcpus = int(numcpus)
+            except subprocess.CalledProcessError:
+                numcpus = 0
+            if numcpus > 1 and self.cmd_exists("numactl",server=host[0]) is False:
+                log("WARNING: numactl not installed on %s. install numactl"
+                    " and provide --numactl flag for multisocket machines" % host[0])
         if not self.parallel:
             log("NOTICE: Remote commands could be faster if you install and configure pdsh")
             self.remote_func = self.serial
@@ -123,9 +156,29 @@ class EmulabClusterHooks:
                     f.write(host[0]+'\n')
             self.remote_func = pdsh
 
-    def cmd_exists(self, cmd):
-        return subprocess.call("type " + cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE) == 0
-    
+    def cmd_exists(self, cmd, server=None):
+        if server is None:
+            return subprocess.call("type " + cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE) == 0
+        else:
+            return ssh(server, "type %s > /dev/null 2>&1" % cmd, checked=False) == 0
+                    
+    def check_hugepages(self):
+        for host in self.hosts:
+            try:
+                num_hugepages = subprocess.check_output("ssh %s cat /sys/kernel/mm/hugepages/hugepages-1048576kB/nr_hugepages " % host[0],
+                                                        shell=True, stderr=subprocess.STDOUT)
+                num_hugepages = int(num_hugepages)
+            except subprocess.CalledProcessError:
+                num_hugepages = 0
+            if num_hugepages < 2:
+                sys.exit("At least 2 1GB hugepages required for DPDK. Didn't find enough on %s" % host[0])
+            try:
+                mounted = subprocess.check_output("ssh %s mount | grep pagesize=1G" % host[0], shell=True, stderr=subprocess.STDOUT)
+            except subprocess.CalledProcessError:
+                mounted = None
+            if mounted is None or "hugetlbfs" not in mounted:
+                sys.exit("DPDK requires 1GB hugepages mounted. Couldn't find any on %s" % host[0])
+
     def serial(self, cmd, checked=True):
         for host in self.hosts:
             log("Running on %s" % host[0])
@@ -162,7 +215,19 @@ class EmulabClusterHooks:
 
     def kill_procs(self):
         log("Killing existing processes")
-        self.remote_func('sudo pkill -f RAMCloud')
+        #DPDK refuses to die for some reason
+        if self.dpdk:
+            for i in range(3):
+                log("Killing DPDK RAMCloud processes. Try:%s" % str(i+1))
+                try:
+                    self.remote_func('sudo pkill -f RAMCloud')
+                except subprocess.CalledProcessError:
+                    pass
+        else:
+            try:
+                self.remote_func('pkill -f RAMCloud')
+            except subprocess.CalledProcessError:
+                pass
 
     def create_log_dir(self):
         log("creating log directories")
@@ -182,9 +247,9 @@ class EmulabClusterHooks:
     def cluster_enter(self, cluster):
         self.cluster = cluster
         log('== Connecting to Emulab via %s ==' % self.hosts[0][0])
-        #self.kill_procs()
+        self.kill_procs()
         self.send_code()
-        self.compile_code(clean=False)
+        self.compile_code(clean=self.clean)
         self.create_log_dir()
         self.fix_disk_permissions()
         log('== Emulab Cluster Configured ==')

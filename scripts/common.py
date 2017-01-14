@@ -84,7 +84,8 @@ class Sandbox(object):
         @return: If bg is True then a Process corresponding to the command
                  which was run, otherwise None.
         """
-        checkHost(host)
+        if config.hooks.server_hosts is None:
+            checkHost(host)
         if bg:
             sonce = ''.join([chr(random.choice(range(ord('a'), ord('z'))))
                              for c in range(8)])
