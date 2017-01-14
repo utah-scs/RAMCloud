@@ -34,6 +34,7 @@ import sys
 import time
 from optparse import OptionParser
 
+cmd_prefix = ''
 # Locations of various RAMCloud executables.
 coordinator_binary = '%s/coordinator' % config.hooks.get_remote_obj_path()
 server_binary = '%s/server' % config.hooks.get_remote_obj_path()
@@ -42,7 +43,6 @@ profile_bin = '%s/../pmu-tools/ucevent/ucevent.py' % config.hooks.get_remote_obj
 
 # valgrind
 valgrind_command = ''
-
 numactl_command = ''
 
 # Info used to construct service locators for each of the transports
@@ -255,8 +255,8 @@ class Cluster(object):
                                                  self.coordinator_host)
         if not self.enable_logcabin:
             command = (
-                '%s %s %s -C %s -l %s --logFile %s/coordinator.%s.log %s' %
-                (valgrind_command, numactl_command,
+                '%s %s %s %s -C %s -l %s --logFile %s/coordinator.%s.log %s' %
+                (cmd_prefix, valgrind_command, numactl_command,
                  coordinator_binary, self.coordinator_locator,
                  self.log_level, self.log_subdir,
                  self.coordinator_host[0], args))
@@ -269,7 +269,7 @@ class Cluster(object):
             command = (
                 '%s %s %s -C %s -z logcabin21:61023 -l %s '
                 '--logFile %s/coordinator.%s.log %s' %
-                (valgrind_command, numactl_command,
+                (cmd_prefix, valgrind_command, numactl_command,
                  coordinator_binary, self.coordinator_locator,
                  self.log_level, self.log_subdir,
                  self.coordinator_host[0], args))
@@ -280,9 +280,9 @@ class Cluster(object):
             # just wait for coordinator to start
             time.sleep(1)
             # invoke the script that restarts the coordinator if it dies
-            restart_command = ('%s/restart_coordinator %s/coordinator.%s.log'
+            restart_command = ('%s %s/restart_coordinator %s/coordinator.%s.log'
                                ' %s %s logcabin21:61023' %
-                                (local_scripts_path, self.log_subdir,
+                                (cmd_prefix, local_scripts_path, self.log_subdir,
                                  self.coordinator_host[0],
                                  obj_path, self.coordinator_locator))
 
@@ -334,9 +334,9 @@ class Cluster(object):
         log_prefix = '%s/server%d.%s' % (
                       self.log_subdir, self.next_server_id, host[0])
 
-        command = ('%s %s %s -C %s -L %s -r %d -l %s --clusterName __unnamed__ '
+        command = ('%s %s %s %s -C %s -L %s -r %d -l %s --clusterName __unnamed__ '
                    '--logFile %s.log --preferredIndex %d %s' %
-                   (valgrind_command, numactl_command,
+                   (cmd_prefix, valgrind_command, numactl_command,
                     server_binary, self.coordinator_locator,
                     server_locator(self.transport, host, port),
                     self.replicas,
@@ -474,9 +474,9 @@ class Cluster(object):
             numBackups = self.backups_started
         self.sandbox.checkFailures()
         try:
-            ensureCommand = ('%s -C %s -m %d -b %d -l 1 --wait %d '
+            ensureCommand = ('%s %s -C %s -m %d -b %d -l 1 --wait %d '
                              '--logFile %s/ensureServers.log' %
-                             (ensure_servers_bin, self.coordinator_locator,
+                             (cmd_prefix, ensure_servers_bin, self.coordinator_locator,
                              numMasters, numBackups, timeout,
                              self.log_subdir))
             if self.verbose:
@@ -503,9 +503,9 @@ class Cluster(object):
         client_args = ' '.join(args[1:])
         clients = []
         for i, client_host in enumerate(hosts):
-            command = ('%s %s %s -C %s --numClients %d --clientIndex %d '
+            command = ('%s %s %s %s -C %s --numClients %d --clientIndex %d '
                        '--logFile %s/client%d.%s.log %s' %
-                       (valgrind_command, numactl_command,
+                       (cmd_prefix, valgrind_command, numactl_command,
                         client_bin, self.coordinator_locator, num_clients,
                         i, self.log_subdir, self.next_client_id,
                         client_host[0], client_args))
@@ -631,7 +631,8 @@ def run(
         disjunct=False,            # Disjunct entities on a server
         coordinator_host=None,     # Co-ordinator machine
         profile=None,              # Which ucevent to profile
-        profile_interval="1000"    # Profile interval in milliseconds
+        profile_interval="1000",   # Profile interval in milliseconds
+        prefix_bin=''              # command-line prefix for binaries
         ):
     """
     Start a coordinator and servers, as indicated by the arguments.  If a
@@ -647,6 +648,9 @@ def run(
         numactl_command = ''
     if profile:
         print("profile:",profile)
+    global cmd_prefix
+    if prefix_bin != '':
+        cmd_prefix = prefix_bin
     if client:
         if num_clients == 0:
             num_clients = 1

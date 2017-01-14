@@ -260,7 +260,8 @@ def run_test(
         'verbose':     options.verbose,
         'profile':     options.profile,
         'profile_interval': options.profile_interval,
-        'numactl':     options.numactl
+        'numactl':     options.numactl,
+        'prefix_bin':  options.prefix_bin
     }
     client_args = {}
     # Provide a default value for num_servers here.  This is better
@@ -950,6 +951,10 @@ if __name__ == '__main__':
             help='perf sample interval for ucevent tool in milliseconds')    
     parser.add_option('--numactl', action='store_true', default=False,
             help='Enable numactl and bind to first socket (cpu0)')
+    parser.add_option('--prefix_bin', type=str, dest='prefix_bin',
+            default='', metavar='PREFIX',
+            help='command line prefix for all binaries')
+
     (options, args) = parser.parse_args()
 
     if options.parse:
